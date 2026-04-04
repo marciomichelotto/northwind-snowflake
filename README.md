@@ -1,3 +1,6 @@
+# EM CONSTRUÇÃO
+
+
 # 🏔️ Northwind Snowflake Pipeline
 
 Pipeline de dados **ELT** baseado no dataset Northwind, construído com arquitetura **Medallion** (Bronze → Silver → Gold) sobre Snowflake.
