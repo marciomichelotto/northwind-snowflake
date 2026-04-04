@@ -1,6 +1,6 @@
 # =============================================================================
 # CI/CD — Northwind Snowflake Pipeline
-# Deploy automático via Snowflake CLI a cada push na branch main
+# QA → toda branch | PRD → somente merge na main
 # =============================================================================
 
 name: Deploy Snowflake
@@ -9,95 +9,157 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:  # Permite rodar manualmente pela UI do GitHub
+      - 'feature/**'
+  workflow_dispatch:
 
 jobs:
-  deploy:
-    name: Deploy to Snowflake
+
+  deploy-qa:
+    name: Deploy to QA
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout do repositório
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Instalar Snowflake CLI
       - name: Install Snowflake CLI
-        run: |
-          pip install snowflake-cli-labs
+        run: pip install snowflake-cli-labs
 
-      # 3. Configurar conexão com o Snowflake
-      - name: Configure Snowflake connection
-        env:
-          SNOWFLAKE_ACCOUNT:   ${{ secrets.SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_USER:      ${{ secrets.SNOWFLAKE_USER }}
-          SNOWFLAKE_PASSWORD:  ${{ secrets.SNOWFLAKE_PASSWORD }}
-          SNOWFLAKE_ROLE:      ${{ secrets.SNOWFLAKE_ROLE }}
-          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
-          SNOWFLAKE_DATABASE:  ${{ secrets.SNOWFLAKE_DATABASE }}
-          SNOWFLAKE_SCHEMA:    ${{ secrets.SNOWFLAKE_SCHEMA }}
+      - name: Configure Snowflake connection (QA)
         run: |
           mkdir -p ~/.snowflake
           cat > ~/.snowflake/config.toml << TOML
-          [connections.default]
-          account   = "$SNOWFLAKE_ACCOUNT"
-          user      = "$SNOWFLAKE_USER"
-          password  = "$SNOWFLAKE_PASSWORD"
-          role      = "$SNOWFLAKE_ROLE"
-          warehouse = "$SNOWFLAKE_WAREHOUSE"
-          database  = "$SNOWFLAKE_DATABASE"
-          schema    = "$SNOWFLAKE_SCHEMA"
-          TOML
+[connections.default]
+account   = "MKQAYBK-CK27934"
+user      = "MARCIOMICHELOTTO"
+password  = "${{ secrets.SNOWFLAKE_PASSWORD }}"
+role      = "ACCOUNTADMIN"
+warehouse = "COMPUTE_WH"
+database  = "FORMACAO"
+schema    = "QA"
+TOML
+          chmod 0600 ~/.snowflake/config.toml
 
-      # 4. Deploy das tabelas
-      - name: Deploy Tables - Bronze
+      - name: Deploy Tables - Bronze (QA)
         run: |
           for f in snowflake/tables/bronze/*.sql; do
-            echo "Deploying $f"
+            echo "Deploying $f → QA"
             snow sql -f "$f"
           done
 
-      - name: Deploy Tables - Silver
+      - name: Deploy Tables - Silver (QA)
         run: |
           for f in snowflake/tables/silver/*.sql; do
-            echo "Deploying $f"
+            echo "Deploying $f → QA"
             snow sql -f "$f"
           done
 
-      - name: Deploy Tables - Gold
+      - name: Deploy Tables - Gold (QA)
         run: |
           for f in snowflake/tables/gold/*.sql; do
-            echo "Deploying $f"
+            echo "Deploying $f → QA"
             snow sql -f "$f"
           done
 
-      # 5. Deploy das procedures
-      - name: Deploy Procedures - Bronze
+      - name: Deploy Procedures - Bronze (QA)
         run: |
           for f in snowflake/procedures/bronze/*.sql; do
-            echo "Deploying $f"
+            echo "Deploying $f → QA"
             snow sql -f "$f"
           done
 
-      - name: Deploy Procedures - Silver
+      - name: Deploy Procedures - Silver (QA)
         run: |
-          for f in snowflake/procedures/silver/*.sql; do
-            echo "Deploying $f"
+          for f in snowflake/procedures/silver/*.sql; done
+            echo "Deploying $f → QA"
             snow sql -f "$f"
           done
 
-      - name: Deploy Procedures - Gold
+      - name: Deploy Procedures - Gold (QA)
         run: |
           for f in snowflake/procedures/gold/*.sql; do
-            echo "Deploying $f"
+            echo "Deploying $f → QA"
             snow sql -f "$f"
           done
 
-      # 6. Deploy das tasks
-      - name: Deploy Tasks
-        run: |
-          snow sql -f snowflake/tasks/tasks_pipeline.sql
+      - name: Deploy Tasks (QA)
+        run: snow sql -f snowflake/tasks/tasks_pipeline.sql
 
-      # 7. Confirmação
-      - name: Deploy completed
-        run: echo "✅ Deploy concluído com sucesso!"
+      - name: QA deploy completed
+        run: echo "✅ Deploy QA concluído!"
+
+  deploy-prd:
+    name: Deploy to PRD
+    runs-on: ubuntu-latest
+    needs: deploy-qa
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Snowflake CLI
+        run: pip install snowflake-cli-labs
+
+      - name: Configure Snowflake connection (PRD)
+        run: |
+          mkdir -p ~/.snowflake
+          cat > ~/.snowflake/config.toml << TOML
+[connections.default]
+account   = "MKQAYBK-CK27934"
+user      = "MARCIOMICHELOTTO"
+password  = "${{ secrets.SNOWFLAKE_PASSWORD }}"
+role      = "ACCOUNTADMIN"
+warehouse = "COMPUTE_WH"
+database  = "FORMACAO"
+schema    = "PRD"
+TOML
+          chmod 0600 ~/.snowflake/config.toml
+
+      - name: Deploy Tables - Bronze (PRD)
+        run: |
+          for f in snowflake/tables/bronze/*.sql; do
+            echo "Deploying $f → PRD"
+            snow sql -f "$f"
+          done
+
+      - name: Deploy Tables - Silver (PRD)
+        run: |
+          for f in snowflake/tables/silver/*.sql; do
+            echo "Deploying $f → PRD"
+            snow sql -f "$f"
+          done
+
+      - name: Deploy Tables - Gold (PRD)
+        run: |
+          for f in snowflake/tables/gold/*.sql; do
+            echo "Deploying $f → PRD"
+            snow sql -f "$f"
+          done
+
+      - name: Deploy Procedures - Bronze (PRD)
+        run: |
+          for f in snowflake/procedures/bronze/*.sql; do
+            echo "Deploying $f → PRD"
+            snow sql -f "$f"
+          done
+
+      - name: Deploy Procedures - Silver (PRD)
+        run: |
+          for f in snowflake/procedures/silver/*.sql; do
+            echo "Deploying $f → PRD"
+            snow sql -f "$f"
+          done
+
+      - name: Deploy Procedures - Gold (PRD)
+        run: |
+          for f in snowflake/procedures/gold/*.sql; do
+            echo "Deploying $f → PRD"
+            snow sql -f "$f"
+          done
+
+      - name: Deploy Tasks (PRD)
+        run: snow sql -f snowflake/tasks/tasks_pipeline.sql
+
+      - name: PRD deploy completed
+        run: echo "✅ Deploy PRD concluído!"
