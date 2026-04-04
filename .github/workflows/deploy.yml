@@ -21,9 +21,20 @@ jobs:
         run: pip install snowflake-cli-labs
 
       - name: Configure Snowflake connection (QA)
+        env:
+          SF_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
         run: |
           mkdir -p ~/.snowflake
-          printf '[connections.default]\naccount = "MKQAYBK-CK27934"\nuser = "MARCIOMICHELOTTO"\npassword = "%s"\nrole = "ACCOUNTADMIN"\nwarehouse = "COMPUTE_WH"\ndatabase = "FORMACAO"\nschema = "QA"\n' "${{ secrets.SNOWFLAKE_PASSWORD }}" > ~/.snowflake/config.toml
+          cat > ~/.snowflake/config.toml << EOF
+[connections.default]
+account = "MKQAYBK-CK27934"
+user = "MARCIOMICHELOTTO"
+password = "$SF_PASSWORD"
+role = "ACCOUNTADMIN"
+warehouse = "COMPUTE_WH"
+database = "FORMACAO"
+schema = "QA"
+EOF
           chmod 0600 ~/.snowflake/config.toml
 
       - name: Deploy Tables - Bronze (QA)
@@ -88,9 +99,20 @@ jobs:
         run: pip install snowflake-cli-labs
 
       - name: Configure Snowflake connection (PRD)
+        env:
+          SF_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
         run: |
           mkdir -p ~/.snowflake
-          printf '[connections.default]\naccount = "MKQAYBK-CK27934"\nuser = "MARCIOMICHELOTTO"\npassword = "%s"\nrole = "ACCOUNTADMIN"\nwarehouse = "COMPUTE_WH"\ndatabase = "FORMACAO"\nschema = "PRD"\n' "${{ secrets.SNOWFLAKE_PASSWORD }}" > ~/.snowflake/config.toml
+          cat > ~/.snowflake/config.toml << EOF
+[connections.default]
+account = "MKQAYBK-CK27934"
+user = "MARCIOMICHELOTTO"
+password = "$SF_PASSWORD"
+role = "ACCOUNTADMIN"
+warehouse = "COMPUTE_WH"
+database = "FORMACAO"
+schema = "PRD"
+EOF
           chmod 0600 ~/.snowflake/config.toml
 
       - name: Deploy Tables - Bronze (PRD)
