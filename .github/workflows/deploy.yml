@@ -1,152 +1,258 @@
-name: Deploy Snowflake
+name: Deploy Snowflake View
+
+env:
+  SCHEMA_PRD: PRD
+  SNOWSQL_DATABASE: FORMACAO
+  SNOWSQL_ACCOUNT_FALLBACK: MKQAYBK-CK27934
+  SNOWSQL_USER_FALLBACK: MARCIOMICHELOTTO
 
 on:
   push:
     branches:
-      - main
-      - 'feature/**'
+      - '**'
   workflow_dispatch:
 
 jobs:
-
-  deploy-qa:
-    name: Deploy to QA
-    runs-on: ubuntu-latest
-    env:
-      SF_ACCOUNT: MKQAYBK-CK27934
-      SF_USER: MARCIOMICHELOTTO
-      SF_ROLE: ACCOUNTADMIN
-      SF_WAREHOUSE: COMPUTE_WH
-      SF_DATABASE: FORMACAO
-      SF_SCHEMA: QA
-      SF_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
-
+  dev:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-22.04
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
-      - name: Install Snowflake CLI
-        run: pip install snowflake-cli-labs
-
-      - name: Configure Snowflake connection (QA)
-        run: python3 setup_snowflake.py
-
-      - name: Deploy Tables - Bronze (QA)
+      - name: Install system dependencies
         run: |
-          for f in snowflake/tables/bronze/*.sql; do
-            echo "Deploying $f to QA"
-            snow sql -f "$f"
+          sudo apt-get update
+          sudo apt-get install -y libaio1 libncurses6 alien
+
+      - name: Download and install SnowSQL via RPM
+        run: |
+          wget https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/1.4/linux_x86_64/snowflake-snowsql-1.4.1-1.x86_64.rpm
+          sudo alien -i snowflake-snowsql-1.4.1-1.x86_64.rpm
+
+      - name: Add SnowSQL to PATH
+        run: echo "/usr/bin" >> "$GITHUB_PATH"
+
+      - name: Check SnowSQL installation
+        run: which snowsql && snowsql -v
+
+      - name: Run changed SQL scripts on DEV
+        env:
+          SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT != '' && secrets.SNOWSQL_ACCOUNT || vars.SNOWSQL_ACCOUNT != '' && vars.SNOWSQL_ACCOUNT || env.SNOWSQL_ACCOUNT_FALLBACK }}
+          SNOWSQL_USER: ${{ secrets.SNOWSQL_USER != '' && secrets.SNOWSQL_USER || vars.SNOWSQL_USER != '' && vars.SNOWSQL_USER || env.SNOWSQL_USER_FALLBACK }}
+          SNOWSQL_PWD: ${{ secrets.SNOWSQL_PWD != '' && secrets.SNOWSQL_PWD || secrets.SNOWFLAKE_PASSWORD }}
+        run: |
+          set -e
+          if [ -z "$SNOWSQL_PWD" ]; then
+            echo "Missing Snowflake password secret (SNOWSQL_PWD or SNOWFLAKE_PASSWORD)."
+            exit 1
+          fi
+
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            MODIFIED_FILES=$(git diff --name-only HEAD~1 HEAD | grep '^snowflake/.*\.sql$' || true)
+          else
+            MODIFIED_FILES=$(git show --pretty='' --name-only HEAD | grep '^snowflake/.*\.sql$' || true)
+          fi
+
+          if [ -z "$MODIFIED_FILES" ]; then
+            echo "No .sql files changed."
+            exit 0
+          fi
+
+          ORDERED_FILES=$(echo "$MODIFIED_FILES" | while read -r file; do
+            if [[ "$file" == *"/tasks/"* ]]; then
+              echo "4:$file"
+            elif [[ "$file" == *"/bronze/"* ]]; then
+              echo "1:$file"
+            elif [[ "$file" == *"/silver/"* ]]; then
+              echo "2:$file"
+            elif [[ "$file" == *"/gold/"* ]]; then
+              echo "3:$file"
+            else
+              echo "0:$file"
+            fi
+          done | sort -t: -k1,1n | cut -d: -f2-)
+
+          for file in $ORDERED_FILES; do
+            echo "Running $file on schema DEV"
+            OUTPUT=$(snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
+              -d "$SNOWSQL_DATABASE" -s DEV \
+              -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
+              -f "$file")
+            echo "$OUTPUT"
+
+            if [[ "$file" == snowflake/procedures/* ]]; then
+              PROC_NAME=$(echo "$OUTPUT" | grep -oP 'Function \K[^ ]+' | head -1)
+              if [[ -n "$PROC_NAME" ]]; then
+                echo "Calling procedure $PROC_NAME on schema DEV"
+                snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
+                  -d "$SNOWSQL_DATABASE" -s DEV \
+                  -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
+                  -q "CALL $PROC_NAME();"
+              else
+                echo "Could not extract the procedure name from the SnowSQL output for file $file"
+              fi
+            fi
           done
 
-      - name: Deploy Tables - Silver (QA)
+  qa:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    needs: dev
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install system dependencies
         run: |
-          for f in snowflake/tables/silver/*.sql; do
-            echo "Deploying $f to QA"
-            snow sql -f "$f"
+          sudo apt-get update
+          sudo apt-get install -y libaio1 libncurses6 alien
+
+      - name: Download and install SnowSQL via RPM
+        run: |
+          wget https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/1.4/linux_x86_64/snowflake-snowsql-1.4.1-1.x86_64.rpm
+          sudo alien -i snowflake-snowsql-1.4.1-1.x86_64.rpm
+
+      - name: Add SnowSQL to PATH
+        run: echo "/usr/bin" >> "$GITHUB_PATH"
+
+      - name: Check SnowSQL installation
+        run: which snowsql && snowsql -v
+
+      - name: Run changed SQL scripts on QA
+        env:
+          SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT != '' && secrets.SNOWSQL_ACCOUNT || vars.SNOWSQL_ACCOUNT != '' && vars.SNOWSQL_ACCOUNT || env.SNOWSQL_ACCOUNT_FALLBACK }}
+          SNOWSQL_USER: ${{ secrets.SNOWSQL_USER != '' && secrets.SNOWSQL_USER || vars.SNOWSQL_USER != '' && vars.SNOWSQL_USER || env.SNOWSQL_USER_FALLBACK }}
+          SNOWSQL_PWD: ${{ secrets.SNOWSQL_PWD != '' && secrets.SNOWSQL_PWD || secrets.SNOWFLAKE_PASSWORD }}
+        run: |
+          set -e
+          if [ -z "$SNOWSQL_PWD" ]; then
+            echo "Missing Snowflake password secret (SNOWSQL_PWD or SNOWFLAKE_PASSWORD)."
+            exit 1
+          fi
+
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            MODIFIED_FILES=$(git diff --name-only HEAD~1 HEAD | grep '^snowflake/.*\.sql$' || true)
+          else
+            MODIFIED_FILES=$(git show --pretty='' --name-only HEAD | grep '^snowflake/.*\.sql$' || true)
+          fi
+
+          if [ -z "$MODIFIED_FILES" ]; then
+            echo "No .sql files changed."
+            exit 0
+          fi
+
+          ORDERED_FILES=$(echo "$MODIFIED_FILES" | while read -r file; do
+            if [[ "$file" == *"/tasks/"* ]]; then
+              echo "4:$file"
+            elif [[ "$file" == *"/bronze/"* ]]; then
+              echo "1:$file"
+            elif [[ "$file" == *"/silver/"* ]]; then
+              echo "2:$file"
+            elif [[ "$file" == *"/gold/"* ]]; then
+              echo "3:$file"
+            else
+              echo "0:$file"
+            fi
+          done | sort -t: -k1,1n | cut -d: -f2-)
+
+          for file in $ORDERED_FILES; do
+            echo "Running $file on schema QA"
+            OUTPUT=$(snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
+              -d "$SNOWSQL_DATABASE" -s QA \
+              -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
+              -f "$file")
+            echo "$OUTPUT"
+
+            if [[ "$file" == snowflake/procedures/* ]]; then
+              PROC_NAME=$(echo "$OUTPUT" | grep -oP 'Function \K[^ ]+' | head -1)
+              if [[ -n "$PROC_NAME" ]]; then
+                echo "Calling procedure $PROC_NAME on schema QA"
+                snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
+                  -d "$SNOWSQL_DATABASE" -s QA \
+                  -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
+                  -q "CALL $PROC_NAME();"
+              else
+                echo "Could not extract the procedure name from the SnowSQL output for file $file"
+              fi
+            fi
           done
 
-      - name: Deploy Tables - Gold (QA)
-        run: |
-          for f in snowflake/tables/gold/*.sql; do
-            echo "Deploying $f to QA"
-            snow sql -f "$f"
-          done
-
-      - name: Deploy Procedures - Bronze (QA)
-        run: |
-          for f in snowflake/procedures/bronze/*.sql; do
-            echo "Deploying $f to QA"
-            snow sql -f "$f"
-          done
-
-      - name: Deploy Procedures - Silver (QA)
-        run: |
-          for f in snowflake/procedures/silver/*.sql; do
-            echo "Deploying $f to QA"
-            snow sql -f "$f"
-          done
-
-      - name: Deploy Procedures - Gold (QA)
-        run: |
-          for f in snowflake/procedures/gold/*.sql; do
-            echo "Deploying $f to QA"
-            snow sql -f "$f"
-          done
-
-      - name: Deploy Tasks (QA)
-        run: snow sql -f snowflake/tasks/tasks_pipeline.sql
-
-      - name: QA deploy completed
-        run: echo "Deploy QA concluido com sucesso!"
-
-  deploy-prd:
-    name: Deploy to PRD
-    runs-on: ubuntu-latest
-    needs: deploy-qa
+  prod:
     if: github.ref == 'refs/heads/main'
-    env:
-      SF_ACCOUNT: MKQAYBK-CK27934
-      SF_USER: MARCIOMICHELOTTO
-      SF_ROLE: ACCOUNTADMIN
-      SF_WAREHOUSE: COMPUTE_WH
-      SF_DATABASE: FORMACAO
-      SF_SCHEMA: PRD
-      SF_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
-
+    runs-on: ubuntu-22.04
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
-      - name: Install Snowflake CLI
-        run: pip install snowflake-cli-labs
-
-      - name: Configure Snowflake connection (PRD)
-        run: python3 setup_snowflake.py
-
-      - name: Deploy Tables - Bronze (PRD)
+      - name: Install system dependencies
         run: |
-          for f in snowflake/tables/bronze/*.sql; do
-            echo "Deploying $f to PRD"
-            snow sql -f "$f"
-          done
+          sudo apt-get update
+          sudo apt-get install -y libaio1 libncurses6 alien
 
-      - name: Deploy Tables - Silver (PRD)
+      - name: Download and install SnowSQL via RPM
         run: |
-          for f in snowflake/tables/silver/*.sql; do
-            echo "Deploying $f to PRD"
-            snow sql -f "$f"
-          done
+          wget https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/1.4/linux_x86_64/snowflake-snowsql-1.4.1-1.x86_64.rpm
+          sudo alien -i snowflake-snowsql-1.4.1-1.x86_64.rpm
 
-      - name: Deploy Tables - Gold (PRD)
+      - name: Add SnowSQL to PATH
+        run: echo "/usr/bin" >> "$GITHUB_PATH"
+
+      - name: Check SnowSQL installation
+        run: which snowsql && snowsql -v
+
+      - name: Run changed SQL scripts on PRD
+        env:
+          SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT != '' && secrets.SNOWSQL_ACCOUNT || vars.SNOWSQL_ACCOUNT != '' && vars.SNOWSQL_ACCOUNT || env.SNOWSQL_ACCOUNT_FALLBACK }}
+          SNOWSQL_USER: ${{ secrets.SNOWSQL_USER != '' && secrets.SNOWSQL_USER || vars.SNOWSQL_USER != '' && vars.SNOWSQL_USER || env.SNOWSQL_USER_FALLBACK }}
+          SNOWSQL_PWD: ${{ secrets.SNOWSQL_PWD != '' && secrets.SNOWSQL_PWD || secrets.SNOWFLAKE_PASSWORD }}
         run: |
-          for f in snowflake/tables/gold/*.sql; do
-            echo "Deploying $f to PRD"
-            snow sql -f "$f"
+          set -e
+          if [ -z "$SNOWSQL_PWD" ]; then
+            echo "Missing Snowflake password secret (SNOWSQL_PWD or SNOWFLAKE_PASSWORD)."
+            exit 1
+          fi
+
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            MODIFIED_FILES=$(git diff --name-only HEAD~1 HEAD | grep '^snowflake/.*\.sql$' || true)
+          else
+            MODIFIED_FILES=$(git show --pretty='' --name-only HEAD | grep '^snowflake/.*\.sql$' || true)
+          fi
+
+          if [ -z "$MODIFIED_FILES" ]; then
+            echo "No .sql files changed."
+            exit 0
+          fi
+
+          ORDERED_FILES=$(echo "$MODIFIED_FILES" | while read -r file; do
+            if [[ "$file" == *"/tasks/"* ]]; then
+              echo "4:$file"
+            elif [[ "$file" == *"/bronze/"* ]]; then
+              echo "1:$file"
+            elif [[ "$file" == *"/silver/"* ]]; then
+              echo "2:$file"
+            elif [[ "$file" == *"/gold/"* ]]; then
+              echo "3:$file"
+            else
+              echo "0:$file"
+            fi
+          done | sort -t: -k1,1n | cut -d: -f2-)
+
+          for file in $ORDERED_FILES; do
+            echo "Running $file on schema $SCHEMA_PRD"
+            OUTPUT=$(snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
+              -d "$SNOWSQL_DATABASE" -s "$SCHEMA_PRD" \
+              -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
+              -f "$file")
+            echo "$OUTPUT"
+
+            if [[ "$file" == snowflake/procedures/* ]]; then
+              PROC_NAME=$(echo "$OUTPUT" | grep -oP 'Function \K[^ ]+' | head -1)
+              if [[ -n "$PROC_NAME" ]]; then
+                echo "Calling procedure $PROC_NAME on schema $SCHEMA_PRD"
+                snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
+                  -d "$SNOWSQL_DATABASE" -s "$SCHEMA_PRD" \
+                  -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
+                  -q "CALL $PROC_NAME();"
+              else
+                echo "Could not extract the procedure name from the SnowSQL output for file $file"
+              fi
+            fi
           done
-
-      - name: Deploy Procedures - Bronze (PRD)
-        run: |
-          for f in snowflake/procedures/bronze/*.sql; do
-            echo "Deploying $f to PRD"
-            snow sql -f "$f"
-          done
-
-      - name: Deploy Procedures - Silver (PRD)
-        run: |
-          for f in snowflake/procedures/silver/*.sql; do
-            echo "Deploying $f to PRD"
-            snow sql -f "$f"
-          done
-
-      - name: Deploy Procedures - Gold (PRD)
-        run: |
-          for f in snowflake/procedures/gold/*.sql; do
-            echo "Deploying $f to PRD"
-            snow sql -f "$f"
-          done
-
-      - name: Deploy Tasks (PRD)
-        run: snow sql -f snowflake/tasks/tasks_pipeline.sql
-
-      - name: PRD deploy completed
-        run: echo "Deploy PRD concluido com sucesso!"
