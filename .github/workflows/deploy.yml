@@ -18,7 +18,7 @@ jobs:
       SF_ROLE: ACCOUNTADMIN
       SF_WAREHOUSE: COMPUTE_WH
       SF_DATABASE: FORMACAO
-      SF_SCHEMA_QA: QA
+      SF_SCHEMA: QA
       SF_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
 
     steps:
@@ -29,23 +29,7 @@ jobs:
         run: pip install snowflake-cli-labs
 
       - name: Configure Snowflake connection (QA)
-        run: |
-          mkdir -p ~/.snowflake
-          python3 -c "
-import os
-config = f'''[connections.default]
-account = \"{os.environ['SF_ACCOUNT']}\"
-user = \"{os.environ['SF_USER']}\"
-password = \"{os.environ['SF_PASSWORD']}\"
-role = \"{os.environ['SF_ROLE']}\"
-warehouse = \"{os.environ['SF_WAREHOUSE']}\"
-database = \"{os.environ['SF_DATABASE']}\"
-schema = \"{os.environ['SF_SCHEMA_QA']}\"
-'''
-with open(os.path.expanduser('~/.snowflake/config.toml'), 'w') as f:
-    f.write(config)
-"
-          chmod 0600 ~/.snowflake/config.toml
+        run: python3 setup_snowflake.py
 
       - name: Deploy Tables - Bronze (QA)
         run: |
@@ -106,7 +90,7 @@ with open(os.path.expanduser('~/.snowflake/config.toml'), 'w') as f:
       SF_ROLE: ACCOUNTADMIN
       SF_WAREHOUSE: COMPUTE_WH
       SF_DATABASE: FORMACAO
-      SF_SCHEMA_PRD: PRD
+      SF_SCHEMA: PRD
       SF_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
 
     steps:
@@ -117,23 +101,7 @@ with open(os.path.expanduser('~/.snowflake/config.toml'), 'w') as f:
         run: pip install snowflake-cli-labs
 
       - name: Configure Snowflake connection (PRD)
-        run: |
-          mkdir -p ~/.snowflake
-          python3 -c "
-import os
-config = f'''[connections.default]
-account = \"{os.environ['SF_ACCOUNT']}\"
-user = \"{os.environ['SF_USER']}\"
-password = \"{os.environ['SF_PASSWORD']}\"
-role = \"{os.environ['SF_ROLE']}\"
-warehouse = \"{os.environ['SF_WAREHOUSE']}\"
-database = \"{os.environ['SF_DATABASE']}\"
-schema = \"{os.environ['SF_SCHEMA_PRD']}\"
-'''
-with open(os.path.expanduser('~/.snowflake/config.toml'), 'w') as f:
-    f.write(config)
-"
-          chmod 0600 ~/.snowflake/config.toml
+        run: python3 setup_snowflake.py
 
       - name: Deploy Tables - Bronze (PRD)
         run: |
