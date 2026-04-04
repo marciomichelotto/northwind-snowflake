@@ -1,0 +1,3 @@
+-- 🔜 Em desenvolvimento
+-- Procedure para geração da dimensão calendário
+-- Será implementada na próxima sprint

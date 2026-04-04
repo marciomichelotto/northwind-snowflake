@@ -1,0 +1,3 @@
+-- 🔜 Em desenvolvimento
+-- Procedure para carga da fato de pedidos
+-- Depende de: gold_dim_customers, gold_dim_products, gold_dim_calendar

@@ -1,0 +1,103 @@
+# =============================================================================
+# CI/CD — Northwind Snowflake Pipeline
+# Deploy automático via Snowflake CLI a cada push na branch main
+# =============================================================================
+
+name: Deploy Snowflake
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # Permite rodar manualmente pela UI do GitHub
+
+jobs:
+  deploy:
+    name: Deploy to Snowflake
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout do repositório
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Instalar Snowflake CLI
+      - name: Install Snowflake CLI
+        run: |
+          pip install snowflake-cli-labs
+
+      # 3. Configurar conexão com o Snowflake
+      - name: Configure Snowflake connection
+        env:
+          SNOWFLAKE_ACCOUNT:   ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER:      ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PASSWORD:  ${{ secrets.SNOWFLAKE_PASSWORD }}
+          SNOWFLAKE_ROLE:      ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE:  ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_SCHEMA:    ${{ secrets.SNOWFLAKE_SCHEMA }}
+        run: |
+          mkdir -p ~/.snowflake
+          cat > ~/.snowflake/config.toml << TOML
+          [connections.default]
+          account   = "$SNOWFLAKE_ACCOUNT"
+          user      = "$SNOWFLAKE_USER"
+          password  = "$SNOWFLAKE_PASSWORD"
+          role      = "$SNOWFLAKE_ROLE"
+          warehouse = "$SNOWFLAKE_WAREHOUSE"
+          database  = "$SNOWFLAKE_DATABASE"
+          schema    = "$SNOWFLAKE_SCHEMA"
+          TOML
+
+      # 4. Deploy das tabelas
+      - name: Deploy Tables - Bronze
+        run: |
+          for f in snowflake/tables/bronze/*.sql; do
+            echo "Deploying $f"
+            snow sql -f "$f"
+          done
+
+      - name: Deploy Tables - Silver
+        run: |
+          for f in snowflake/tables/silver/*.sql; do
+            echo "Deploying $f"
+            snow sql -f "$f"
+          done
+
+      - name: Deploy Tables - Gold
+        run: |
+          for f in snowflake/tables/gold/*.sql; do
+            echo "Deploying $f"
+            snow sql -f "$f"
+          done
+
+      # 5. Deploy das procedures
+      - name: Deploy Procedures - Bronze
+        run: |
+          for f in snowflake/procedures/bronze/*.sql; do
+            echo "Deploying $f"
+            snow sql -f "$f"
+          done
+
+      - name: Deploy Procedures - Silver
+        run: |
+          for f in snowflake/procedures/silver/*.sql; do
+            echo "Deploying $f"
+            snow sql -f "$f"
+          done
+
+      - name: Deploy Procedures - Gold
+        run: |
+          for f in snowflake/procedures/gold/*.sql; do
+            echo "Deploying $f"
+            snow sql -f "$f"
+          done
+
+      # 6. Deploy das tasks
+      - name: Deploy Tasks
+        run: |
+          snow sql -f snowflake/tasks/tasks_pipeline.sql
+
+      # 7. Confirmação
+      - name: Deploy completed
+        run: echo "✅ Deploy concluído com sucesso!"
