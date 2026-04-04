@@ -1,8 +1,3 @@
-# =============================================================================
-# CI/CD — Northwind Snowflake Pipeline
-# QA → toda branch | PRD → somente merge na main
-# =============================================================================
-
 name: Deploy Snowflake
 
 on:
@@ -28,57 +23,48 @@ jobs:
       - name: Configure Snowflake connection (QA)
         run: |
           mkdir -p ~/.snowflake
-          cat > ~/.snowflake/config.toml << TOML
-[connections.default]
-account   = "MKQAYBK-CK27934"
-user      = "MARCIOMICHELOTTO"
-password  = "${{ secrets.SNOWFLAKE_PASSWORD }}"
-role      = "ACCOUNTADMIN"
-warehouse = "COMPUTE_WH"
-database  = "FORMACAO"
-schema    = "QA"
-TOML
+          printf '[connections.default]\naccount = "MKQAYBK-CK27934"\nuser = "MARCIOMICHELOTTO"\npassword = "%s"\nrole = "ACCOUNTADMIN"\nwarehouse = "COMPUTE_WH"\ndatabase = "FORMACAO"\nschema = "QA"\n' "${{ secrets.SNOWFLAKE_PASSWORD }}" > ~/.snowflake/config.toml
           chmod 0600 ~/.snowflake/config.toml
 
       - name: Deploy Tables - Bronze (QA)
         run: |
           for f in snowflake/tables/bronze/*.sql; do
-            echo "Deploying $f → QA"
+            echo "Deploying $f to QA"
             snow sql -f "$f"
           done
 
       - name: Deploy Tables - Silver (QA)
         run: |
           for f in snowflake/tables/silver/*.sql; do
-            echo "Deploying $f → QA"
+            echo "Deploying $f to QA"
             snow sql -f "$f"
           done
 
       - name: Deploy Tables - Gold (QA)
         run: |
           for f in snowflake/tables/gold/*.sql; do
-            echo "Deploying $f → QA"
+            echo "Deploying $f to QA"
             snow sql -f "$f"
           done
 
       - name: Deploy Procedures - Bronze (QA)
         run: |
           for f in snowflake/procedures/bronze/*.sql; do
-            echo "Deploying $f → QA"
+            echo "Deploying $f to QA"
             snow sql -f "$f"
           done
 
       - name: Deploy Procedures - Silver (QA)
         run: |
-          for f in snowflake/procedures/silver/*.sql; done
-            echo "Deploying $f → QA"
+          for f in snowflake/procedures/silver/*.sql; do
+            echo "Deploying $f to QA"
             snow sql -f "$f"
           done
 
       - name: Deploy Procedures - Gold (QA)
         run: |
           for f in snowflake/procedures/gold/*.sql; do
-            echo "Deploying $f → QA"
+            echo "Deploying $f to QA"
             snow sql -f "$f"
           done
 
@@ -86,7 +72,7 @@ TOML
         run: snow sql -f snowflake/tasks/tasks_pipeline.sql
 
       - name: QA deploy completed
-        run: echo "✅ Deploy QA concluído!"
+        run: echo "Deploy QA concluido com sucesso!"
 
   deploy-prd:
     name: Deploy to PRD
@@ -104,57 +90,48 @@ TOML
       - name: Configure Snowflake connection (PRD)
         run: |
           mkdir -p ~/.snowflake
-          cat > ~/.snowflake/config.toml << TOML
-[connections.default]
-account   = "MKQAYBK-CK27934"
-user      = "MARCIOMICHELOTTO"
-password  = "${{ secrets.SNOWFLAKE_PASSWORD }}"
-role      = "ACCOUNTADMIN"
-warehouse = "COMPUTE_WH"
-database  = "FORMACAO"
-schema    = "PRD"
-TOML
+          printf '[connections.default]\naccount = "MKQAYBK-CK27934"\nuser = "MARCIOMICHELOTTO"\npassword = "%s"\nrole = "ACCOUNTADMIN"\nwarehouse = "COMPUTE_WH"\ndatabase = "FORMACAO"\nschema = "PRD"\n' "${{ secrets.SNOWFLAKE_PASSWORD }}" > ~/.snowflake/config.toml
           chmod 0600 ~/.snowflake/config.toml
 
       - name: Deploy Tables - Bronze (PRD)
         run: |
           for f in snowflake/tables/bronze/*.sql; do
-            echo "Deploying $f → PRD"
+            echo "Deploying $f to PRD"
             snow sql -f "$f"
           done
 
       - name: Deploy Tables - Silver (PRD)
         run: |
           for f in snowflake/tables/silver/*.sql; do
-            echo "Deploying $f → PRD"
+            echo "Deploying $f to PRD"
             snow sql -f "$f"
           done
 
       - name: Deploy Tables - Gold (PRD)
         run: |
           for f in snowflake/tables/gold/*.sql; do
-            echo "Deploying $f → PRD"
+            echo "Deploying $f to PRD"
             snow sql -f "$f"
           done
 
       - name: Deploy Procedures - Bronze (PRD)
         run: |
           for f in snowflake/procedures/bronze/*.sql; do
-            echo "Deploying $f → PRD"
+            echo "Deploying $f to PRD"
             snow sql -f "$f"
           done
 
       - name: Deploy Procedures - Silver (PRD)
         run: |
           for f in snowflake/procedures/silver/*.sql; do
-            echo "Deploying $f → PRD"
+            echo "Deploying $f to PRD"
             snow sql -f "$f"
           done
 
       - name: Deploy Procedures - Gold (PRD)
         run: |
           for f in snowflake/procedures/gold/*.sql; do
-            echo "Deploying $f → PRD"
+            echo "Deploying $f to PRD"
             snow sql -f "$f"
           done
 
@@ -162,4 +139,4 @@ TOML
         run: snow sql -f snowflake/tasks/tasks_pipeline.sql
 
       - name: PRD deploy completed
-        run: echo "✅ Deploy PRD concluído!"
+        run: echo "Deploy PRD concluido com sucesso!"
