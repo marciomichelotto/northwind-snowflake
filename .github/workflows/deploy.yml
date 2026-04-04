@@ -17,7 +17,7 @@ jobs:
     if: github.ref != 'refs/heads/main'
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install system dependencies
         run: |
@@ -76,7 +76,6 @@ jobs:
             echo "Running $file on schema DEV"
             OUTPUT=$(snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
               -d "$SNOWSQL_DATABASE" -s DEV \
-              -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
               -f "$file")
             echo "$OUTPUT"
 
@@ -86,7 +85,6 @@ jobs:
                 echo "Calling procedure $PROC_NAME on schema DEV"
                 snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
                   -d "$SNOWSQL_DATABASE" -s DEV \
-                  -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
                   -q "CALL $PROC_NAME();"
               else
                 echo "Could not extract the procedure name from the SnowSQL output for file $file"
@@ -99,7 +97,7 @@ jobs:
     runs-on: ubuntu-22.04
     needs: dev
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install system dependencies
         run: |
@@ -158,7 +156,6 @@ jobs:
             echo "Running $file on schema QA"
             OUTPUT=$(snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
               -d "$SNOWSQL_DATABASE" -s QA \
-              -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
               -f "$file")
             echo "$OUTPUT"
 
@@ -168,7 +165,6 @@ jobs:
                 echo "Calling procedure $PROC_NAME on schema QA"
                 snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
                   -d "$SNOWSQL_DATABASE" -s QA \
-                  -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
                   -q "CALL $PROC_NAME();"
               else
                 echo "Could not extract the procedure name from the SnowSQL output for file $file"
@@ -180,7 +176,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install system dependencies
         run: |
@@ -239,7 +235,6 @@ jobs:
             echo "Running $file on schema $SCHEMA_PRD"
             OUTPUT=$(snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
               -d "$SNOWSQL_DATABASE" -s "$SCHEMA_PRD" \
-              -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
               -f "$file")
             echo "$OUTPUT"
 
@@ -249,7 +244,6 @@ jobs:
                 echo "Calling procedure $PROC_NAME on schema $SCHEMA_PRD"
                 snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
                   -d "$SNOWSQL_DATABASE" -s "$SCHEMA_PRD" \
-                  -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
                   -q "CALL $PROC_NAME();"
               else
                 echo "Could not extract the procedure name from the SnowSQL output for file $file"
