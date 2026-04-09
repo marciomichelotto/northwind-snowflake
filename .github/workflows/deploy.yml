@@ -3,7 +3,6 @@ name: Deploy Snowflake View
 env:
   SCHEMA_PRD: PRD
   SNOWSQL_DATABASE: FORMACAO
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 on:
   push:
@@ -28,7 +27,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev')
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install system dependencies
         run: |
@@ -110,7 +109,7 @@ jobs:
     runs-on: ubuntu-22.04
     needs: dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install system dependencies
         run: |
@@ -190,7 +189,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod')
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install system dependencies
         run: |
