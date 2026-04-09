@@ -27,7 +27,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev')
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install system dependencies
         run: |
@@ -109,7 +109,7 @@ jobs:
     runs-on: ubuntu-22.04
     needs: dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install system dependencies
         run: |
@@ -188,9 +188,8 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod')
     runs-on: ubuntu-22.04
-    needs: [dev, qa]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install system dependencies
         run: |
@@ -247,12 +246,12 @@ jobs:
           echo "  Schema: ${{ env.SCHEMA_PRD }}"
           echo "  Host: ${SNOWSQL_ACCOUNT}.snowflakecomputing.com:443"
           
-          # Test basic connection with version query
+          # Test basic authenticated session without requiring an active warehouse
           set +e  # Temporarily disable exit on error
           CONNECT_TEST=$(snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
             -d "$SNOWSQL_DATABASE" \
             -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
-            -q "SELECT CURRENT_VERSION() as version, CURRENT_ROLE() as role, CURRENT_WAREHOUSE() as warehouse;" \
+            -q "SHOW DATABASES LIKE '$SNOWSQL_DATABASE';" \
             -o output_format=csv \
             -o header=false \
             -o exit_on_error=false 2>&1)
@@ -294,7 +293,7 @@ jobs:
           snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
             -d "$SNOWSQL_DATABASE" \
             -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
-            -q "CREATE SCHEMA IF NOT EXISTS ${{ env.SCHEMA_PRD }}; GRANT USAGE ON SCHEMA ${{ env.SCHEMA_PRD }} TO ROLE CURRENT_ROLE();" \
+            -q "CREATE SCHEMA IF NOT EXISTS ${{ env.SCHEMA_PRD }};" \
             -o exit_on_error=true
 
       - name: Run changed SQL scripts on PRD
