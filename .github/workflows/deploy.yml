@@ -9,13 +9,25 @@ on:
     branches:
       - '**'
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
 
 jobs:
   dev:
-    if: github.ref != 'refs/heads/main'
+    if: |
+      (github.event_name == 'push' && github.ref != 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev')
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install system dependencies
         run: |
@@ -88,11 +100,13 @@ jobs:
           done
 
   qa:
-    if: github.ref != 'refs/heads/main'
+    if: |
+      (github.event_name == 'push' && github.ref != 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'qa')
     runs-on: ubuntu-22.04
     needs: dev
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install system dependencies
         run: |
@@ -165,10 +179,13 @@ jobs:
           done
 
   prod:
-    if: github.ref == 'refs/heads/main'
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod')
     runs-on: ubuntu-22.04
+    needs: [dev, qa]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install system dependencies
         run: |
@@ -186,6 +203,25 @@ jobs:
       - name: Check SnowSQL installation
         run: which snowsql && snowsql -v
 
+      - name: Debug - Test Snowflake Connection
+        env:
+          SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT }}
+          SNOWSQL_USER: ${{ secrets.SNOWSQL_USER }}
+          SNOWSQL_PWD: ${{ secrets.SNOWSQL_PWD }}
+        run: |
+          echo "Testing connection to Snowflake..."
+          echo "Account: ${SNOWSQL_ACCOUNT}"
+          echo "User: ${SNOWSQL_USER}"
+          echo "Database: ${{ env.SNOWSQL_DATABASE }}"
+          echo "Schema: ${{ env.SCHEMA_PRD }}"
+          
+          # Test connection with simple query
+          snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
+            -d "$SNOWSQL_DATABASE" -s "$SCHEMA_PRD" \
+            -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
+            -q "SELECT CURRENT_VERSION(), CURRENT_ROLE(), CURRENT_WAREHOUSE();" \
+            -o exit_on_error=true
+
       - name: Run changed SQL scripts on PRD
         env:
           SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT }}
@@ -193,6 +229,15 @@ jobs:
           SNOWSQL_PWD: ${{ secrets.SNOWSQL_PWD }}
         run: |
           set -e
+          
+          # Ensure PRD schema exists
+          echo "Creating PRD schema if not exists..."
+          snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
+            -d "$SNOWSQL_DATABASE" \
+            -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
+            -q "CREATE SCHEMA IF NOT EXISTS $SCHEMA_PRD;" \
+            -o exit_on_error=true
+          
           if git rev-parse HEAD~1 >/dev/null 2>&1; then
             MODIFIED_FILES=$(git diff --name-only HEAD~1 HEAD | grep '^snowflake/.*\.sql$' || true)
           else
@@ -223,7 +268,8 @@ jobs:
             OUTPUT=$(snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
               -d "$SNOWSQL_DATABASE" -s "$SCHEMA_PRD" \
               -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
-              -f "$file")
+              -f "$file" \
+              -o exit_on_error=true)
             echo "$OUTPUT"
 
             if [[ "$file" == snowflake/procedures/* ]]; then
@@ -233,7 +279,8 @@ jobs:
                 snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
                   -d "$SNOWSQL_DATABASE" -s "$SCHEMA_PRD" \
                   -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
-                  -q "CALL $PROC_NAME();"
+                  -q "CALL $PROC_NAME();" \
+                  -o exit_on_error=true
               else
                 echo "Could not extract the procedure name from the SnowSQL output for file $file"
               fi
