@@ -1,15 +1,10 @@
-# EM CONSTRUÇÃO
+# Northwind Snowflake Pipeline
 
+Pipeline ELT baseado no dataset Northwind, construído com arquitetura Medallion (Bronze → Silver → Gold) sobre Snowflake — com Stored Procedures, Tasks de orquestração e CI/CD via GitHub Actions.
 
-# 🏔️ Northwind Snowflake Pipeline
+> **Northwind** é um dataset clássico de uma distribuidora fictícia de alimentos, amplamente usado para modelagem dimensional. Aqui ele serve como base para uma pipeline completa de engenharia de dados.
 
-Pipeline de dados **ELT** baseado no dataset Northwind, construído com arquitetura **Medallion** (Bronze → Silver → Gold) sobre Snowflake.
-
-Projeto desenvolvido por [Márcio Michelotto](https://github.com/marciomichelotto) como parte de estudos práticos em Data Engineering.
-
----
-
-## 🧱 Arquitetura
+## Arquitetura
 
 ```
 Stage S3 (Parquet)
@@ -30,24 +25,20 @@ Stage S3 (Parquet)
   └─────────────┘
 ```
 
-Cada camada é carregada por **Stored Procedures** e orquestrada por **Tasks** dentro do Snowflake.
+Cada camada é carregada por Stored Procedures e orquestrada por Tasks dentro do Snowflake.
 
----
+## Entidades
 
-## 📦 Entidades
+| Entidade | Bronze | Silver | Gold | Status |
+|---|---|---|---|---|
+| Customers | ✅ | ✅ | dim_customers | ✅ |
+| Products | ✅ | ✅ | dim_products | ✅ |
+| Orders | ✅ | ✅ | — | ✅ |
+| Order Details | ✅ | ✅ | — | ✅ |
+| Calendar | — | — | dim_calendar | 🔜 |
+| Orders (Fact) | — | — | fact_orders | 🔜 |
 
-| Entidade        | Bronze | Silver | Gold           | Status |
-|-----------------|--------|--------|----------------|--------|
-| Customers       | ✅     | ✅     | dim_customers  | ✅     |
-| Products        | ✅     | ✅     | dim_products   | ✅     |
-| Orders          | ✅     | ✅     | —              | ✅     |
-| Order Details   | ✅     | ✅     | —              | ✅     |
-| Calendar        | —      | —      | dim_calendar   | 🔜     |
-| Orders (Fact)   | —      | —      | fact_orders    | 🔜     |
-
----
-
-## 🗂️ Estrutura do Repositório
+## Estrutura do Repositório
 
 ```
 northwind-snowflake/
@@ -81,15 +72,13 @@ northwind-snowflake/
 └── README.md
 ```
 
----
-
-## ⚙️ Configuração do Ambiente
+## Configuração do Ambiente
 
 ### Pré-requisitos
 
 - Conta Snowflake ativa
 - [Snowflake CLI](https://docs.snowflake.com/en/developer-guide/snowflake-cli/index) instalado
-- Acesso ao stage configurado (`@POC.PUBLIC.NORTH`)
+- Acesso ao stage S3 configurado (`@POC.PUBLIC.NORTH`)
 
 ### Variáveis necessárias
 
@@ -109,11 +98,9 @@ SNOWFLAKE_DATABASE=POC
 SNOWFLAKE_SCHEMA=PUBLIC
 ```
 
-> ⚠️ **Nunca commite o arquivo `.env`** — ele está no `.gitignore`.
+> Nunca commite o arquivo `.env` — ele está no `.gitignore`.
 
----
-
-## 🚀 Deploy
+## Deploy
 
 ### Manual (via Snowflake CLI)
 
@@ -139,15 +126,17 @@ snow sql -f snowflake/tasks/tasks_pipeline.sql
 
 ### Automático (CI/CD)
 
-O pipeline de CI/CD roda automaticamente via **GitHub Actions** a cada push na branch `main`.
+O pipeline de CI/CD roda via GitHub Actions a cada push nas branches `dev`, `qa` e `main`.
+
+- Push em `dev` → deploy no ambiente de desenvolvimento
+- Push em `qa` → deploy no ambiente de homologação
+- Push em `main` → deploy em produção
 
 Veja `.github/workflows/deploy.yml` para detalhes.
 
----
+## Fluxo de Execução
 
-## 🔄 Fluxo de Execução
-
-```
+```sql
 CALL load_bronze_customers();   -- Lê Parquet do stage → insere raw na Bronze
 CALL load_silver_customers();   -- Limpa e tipifica → insere na Silver
 CALL gold_dim_customers();      -- MERGE com hash_diff → upsert na Gold
@@ -155,20 +144,17 @@ CALL gold_dim_customers();      -- MERGE com hash_diff → upsert na Gold
 
 As Tasks automatizam essa sequência inteira via agendamento no Snowflake.
 
----
+## Stack
 
-## 🛠️ Stack
+| Ferramenta | Uso |
+|---|---|
+| Snowflake | Data warehouse principal |
+| AWS S3 | Stage externo — fonte dos arquivos Parquet |
+| Snowflake Tasks | Orquestração interna do pipeline |
+| GitHub Actions | CI/CD — deploy automático por ambiente |
+| Snowflake CLI | Deploy via linha de comando |
+| Python / SQL | Desenvolvimento e transformações |
 
-| Ferramenta       | Uso                              |
-|------------------|----------------------------------|
-| Snowflake        | Data warehouse principal         |
-| Snowflake Tasks  | Orquestração interna do pipeline |
-| GitHub Actions   | CI/CD — deploy automático        |
-| Snowflake CLI    | Deploy via linha de comando      |
-| Python / SQL     | Desenvolvimento e transformações |
-
----
-
-## 📄 Licença
+## Licença
 
 MIT © [Márcio Michelotto](https://github.com/marciomichelotto)
