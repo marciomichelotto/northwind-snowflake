@@ -1,13 +1,16 @@
-name: Deploy Snowflake View
+name: Deploy Snowflake Pipeline
 
 env:
-  SCHEMA_PRD: PRD
   SNOWSQL_DATABASE: FORMACAO
 
 on:
   push:
     branches:
-      - '**'
+      - dev
+      - qa
+      - main
+    paths:
+      - 'snowflake/**/*.sql'
   workflow_dispatch:
     inputs:
       environment:
@@ -21,289 +24,90 @@ on:
           - prod
 
 jobs:
-  dev:
-    if: |
-      (github.event_name == 'push' && github.ref != 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev')
+  deploy:
     runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v5
 
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      # ---------------------------------------------------
+      # Determina o schema de destino com base na branch
+      # ou no input manual do workflow_dispatch
+      # ---------------------------------------------------
+      - name: Set target schema
+        id: schema
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            ENV="${{ github.event.inputs.environment }}"
+          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            ENV="prod"
+          elif [ "${{ github.ref }}" == "refs/heads/qa" ]; then
+            ENV="qa"
+          else
+            ENV="dev"
+          fi
+
+          case "$ENV" in
+            prod) SCHEMA="PRD" ;;
+            qa)   SCHEMA="QA"  ;;
+            *)    SCHEMA="DEV" ;;
+          esac
+
+          echo "env=$ENV"     >> "$GITHUB_OUTPUT"
+          echo "schema=$SCHEMA" >> "$GITHUB_OUTPUT"
+          echo "Deploying to environment: $ENV → schema: $SCHEMA"
+
+      # ---------------------------------------------------
+      # Instalação do SnowSQL
+      # ---------------------------------------------------
       - name: Install system dependencies
         run: |
-          sudo apt-get update
+          sudo apt-get update -qq
           sudo apt-get install -y libaio1 libncurses6 alien
 
-      - name: Download and install SnowSQL via RPM
+      - name: Download and install SnowSQL
         run: |
-          wget https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/1.4/linux_x86_64/snowflake-snowsql-1.4.1-1.x86_64.rpm
+          wget -q https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/1.4/linux_x86_64/snowflake-snowsql-1.4.1-1.x86_64.rpm
           sudo alien -i snowflake-snowsql-1.4.1-1.x86_64.rpm
 
       - name: Add SnowSQL to PATH
         run: echo "/usr/bin" >> "$GITHUB_PATH"
 
-      - name: Check SnowSQL installation
-        run: which snowsql && snowsql -v
+      - name: Verify SnowSQL installation
+        run: snowsql -v
 
-      - name: Run changed SQL scripts on DEV
+      # ---------------------------------------------------
+      # Garante que o schema de destino existe
+      # ---------------------------------------------------
+      - name: Ensure target schema exists
         env:
           SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT }}
           SNOWSQL_USER: ${{ secrets.SNOWSQL_USER }}
           SNOWSQL_PWD: ${{ secrets.SNOWSQL_PWD }}
         run: |
-          set -e
-          if git rev-parse HEAD~1 >/dev/null 2>&1; then
-            MODIFIED_FILES=$(git diff --name-only HEAD~1 HEAD | grep '^snowflake/.*\.sql$' || true)
-          else
-            MODIFIED_FILES=$(git show --pretty='' --name-only HEAD | grep '^snowflake/.*\.sql$' || true)
-          fi
-
-          if [ -z "$MODIFIED_FILES" ]; then
-            echo "No .sql files changed."
-            exit 0
-          fi
-
-          ORDERED_FILES=$(echo "$MODIFIED_FILES" | while read -r file; do
-            if [[ "$file" == *"/tasks/"* ]]; then
-              echo "4:$file"
-            elif [[ "$file" == *"/bronze/"* ]]; then
-              echo "1:$file"
-            elif [[ "$file" == *"/silver/"* ]]; then
-              echo "2:$file"
-            elif [[ "$file" == *"/gold/"* ]]; then
-              echo "3:$file"
-            else
-              echo "0:$file"
-            fi
-          done | sort -t: -k1,1n | cut -d: -f2-)
-
-          for file in $ORDERED_FILES; do
-            echo "Running $file on schema DEV"
-            OUTPUT=$(snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
-              -d "$SNOWSQL_DATABASE" -s DEV \
-              -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
-              -f "$file" \
-              -o exit_on_error=true \
-              --log-level DEBUG)
-            echo "$OUTPUT"
-
-            if [[ "$file" == snowflake/procedures/* ]]; then
-              PROC_NAME=$(echo "$OUTPUT" | grep -oP '(?<=Function )[^ ]+' | head -1)
-              if [[ -n "$PROC_NAME" ]]; then
-                echo "Calling procedure $PROC_NAME on schema DEV"
-                snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
-                  -d "$SNOWSQL_DATABASE" -s DEV \
-                  -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
-                  -q "CALL $PROC_NAME();" \
-                  -o exit_on_error=true
-              else
-                echo "Could not extract the procedure name from the SnowSQL output for file $file"
-              fi
-            fi
-          done
-
-  qa:
-    if: |
-      (github.event_name == 'push' && github.ref != 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'qa')
-    runs-on: ubuntu-22.04
-    needs: dev
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libaio1 libncurses6 alien
-
-      - name: Download and install SnowSQL via RPM
-        run: |
-          wget https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/1.4/linux_x86_64/snowflake-snowsql-1.4.1-1.x86_64.rpm
-          sudo alien -i snowflake-snowsql-1.4.1-1.x86_64.rpm
-
-      - name: Add SnowSQL to PATH
-        run: echo "/usr/bin" >> "$GITHUB_PATH"
-
-      - name: Check SnowSQL installation
-        run: which snowsql && snowsql -v
-
-      - name: Run changed SQL scripts on QA
-        env:
-          SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT }}
-          SNOWSQL_USER: ${{ secrets.SNOWSQL_USER }}
-          SNOWSQL_PWD: ${{ secrets.SNOWSQL_PWD }}
-        run: |
-          set -e
-          if git rev-parse HEAD~1 >/dev/null 2>&1; then
-            MODIFIED_FILES=$(git diff --name-only HEAD~1 HEAD | grep '^snowflake/.*\.sql$' || true)
-          else
-            MODIFIED_FILES=$(git show --pretty='' --name-only HEAD | grep '^snowflake/.*\.sql$' || true)
-          fi
-
-          if [ -z "$MODIFIED_FILES" ]; then
-            echo "No .sql files changed."
-            exit 0
-          fi
-
-          ORDERED_FILES=$(echo "$MODIFIED_FILES" | while read -r file; do
-            if [[ "$file" == *"/tasks/"* ]]; then
-              echo "4:$file"
-            elif [[ "$file" == *"/bronze/"* ]]; then
-              echo "1:$file"
-            elif [[ "$file" == *"/silver/"* ]]; then
-              echo "2:$file"
-            elif [[ "$file" == *"/gold/"* ]]; then
-              echo "3:$file"
-            else
-              echo "0:$file"
-            fi
-          done | sort -t: -k1,1n | cut -d: -f2-)
-
-          for file in $ORDERED_FILES; do
-            echo "Running $file on schema QA"
-            OUTPUT=$(snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
-              -d "$SNOWSQL_DATABASE" -s QA \
-              -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
-              -f "$file" \
-              -o exit_on_error=true)
-            echo "$OUTPUT"
-
-            if [[ "$file" == snowflake/procedures/* ]]; then
-              PROC_NAME=$(echo "$OUTPUT" | grep -oP '(?<=Function )[^ ]+' | head -1)
-              if [[ -n "$PROC_NAME" ]]; then
-                echo "Calling procedure $PROC_NAME on schema QA"
-                snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
-                  -d "$SNOWSQL_DATABASE" -s QA \
-                  -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
-                  -q "CALL $PROC_NAME();" \
-                  -o exit_on_error=true
-              else
-                echo "Could not extract the procedure name from the SnowSQL output for file $file"
-              fi
-            fi
-          done
-
-  prod:
-    if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod')
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libaio1 libncurses6 alien
-
-      - name: Download and install SnowSQL via RPM
-        run: |
-          wget https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/1.4/linux_x86_64/snowflake-snowsql-1.4.1-1.x86_64.rpm
-          sudo alien -i snowflake-snowsql-1.4.1-1.x86_64.rpm
-
-      - name: Add SnowSQL to PATH
-        run: echo "/usr/bin" >> "$GITHUB_PATH"
-
-      - name: Check SnowSQL installation
-        run: which snowsql && snowsql -v
-
-      - name: Debug - Check Secret Variables (Masked)
-        run: |
-          echo "Checking if secrets are available..."
-          if [ -n "${{ secrets.SNOWSQL_ACCOUNT }}" ]; then
-            echo "✅ SNOWSQL_ACCOUNT is set (length: ${{ secrets.SNOWSQL_ACCOUNT != '' && 'present' || 'empty' }})"
-          else
-            echo "❌ SNOWSQL_ACCOUNT is NOT set"
-          fi
-          
-          if [ -n "${{ secrets.SNOWSQL_USER }}" ]; then
-            echo "✅ SNOWSQL_USER is set"
-          else
-            echo "❌ SNOWSQL_USER is NOT set"
-          fi
-          
-          if [ -n "${{ secrets.SNOWSQL_PWD }}" ]; then
-            echo "✅ SNOWSQL_PWD is set"
-          else
-            echo "❌ SNOWSQL_PWD is NOT set"
-          fi
-          
-          echo "Environment variables:"
-          echo "Database: ${{ env.SNOWSQL_DATABASE }}"
-          echo "Schema PRD: ${{ env.SCHEMA_PRD }}"
-
-      - name: Debug - Test Snowflake Connection with Detailed Output
-        env:
-          SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT }}
-          SNOWSQL_USER: ${{ secrets.SNOWSQL_USER }}
-          SNOWSQL_PWD: ${{ secrets.SNOWSQL_PWD }}
-        run: |
-          echo "Testing connection to Snowflake PRD environment..."
-          echo "Attempting to connect with:"
-          echo "  Account: ${SNOWSQL_ACCOUNT}"
-          echo "  User: ${SNOWSQL_USER}"
-          echo "  Database: ${{ env.SNOWSQL_DATABASE }}"
-          echo "  Schema: ${{ env.SCHEMA_PRD }}"
-          echo "  Host: ${SNOWSQL_ACCOUNT}.snowflakecomputing.com:443"
-          
-          # Test basic authenticated session without requiring an active warehouse
-          set +e  # Temporarily disable exit on error
-          CONNECT_TEST=$(snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
+          snowsql \
+            -a "$SNOWSQL_ACCOUNT" \
+            -u "$SNOWSQL_USER" \
             -d "$SNOWSQL_DATABASE" \
             -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
-            -q "SHOW DATABASES LIKE '$SNOWSQL_DATABASE';" \
-            -o output_format=csv \
-            -o header=false \
-            -o exit_on_error=false 2>&1)
-          
-          EXIT_CODE=$?
-          echo "$CONNECT_TEST"
-          
-          if [ $EXIT_CODE -eq 0 ]; then
-            echo "✅ Connection successful!"
-            echo "Connection test output: $CONNECT_TEST"
-          else
-            echo "❌ Connection failed with exit code: $EXIT_CODE"
-            echo "Error details: $CONNECT_TEST"
-            
-            # Provide troubleshooting hints based on common errors
-            if echo "$CONNECT_TEST" | grep -qi "authentication"; then
-              echo "🔍 TROUBLESHOOTING: Authentication failed. Check your SNOWSQL_USER and SNOWSQL_PWD secrets."
-            elif echo "$CONNECT_TEST" | grep -qi "account"; then
-              echo "🔍 TROUBLESHOOTING: Account error. Check your SNOWSQL_ACCOUNT format (should be like 'xy12345' or 'org-account')."
-            elif echo "$CONNECT_TEST" | grep -qi "database"; then
-              echo "🔍 TROUBLESHOOTING: Database error. Check if '${{ env.SNOWSQL_DATABASE }}' exists."
-            elif echo "$CONNECT_TEST" | grep -qi "permission\|privilege"; then
-              echo "🔍 TROUBLESHOOTING: Permission error. Check if user has access to the database."
-            else
-              echo "🔍 TROUBLESHOOTING: Unknown error. Check Snowflake account status and network connectivity."
-            fi
-            
-            exit $EXIT_CODE
-          fi
-          set -e  # Re-enable exit on error
-
-      - name: Create PRD schema if not exists
-        env:
-          SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT }}
-          SNOWSQL_USER: ${{ secrets.SNOWSQL_USER }}
-          SNOWSQL_PWD: ${{ secrets.SNOWSQL_PWD }}
-        run: |
-          echo "Ensuring PRD schema exists in database ${{ env.SNOWSQL_DATABASE }}..."
-          snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
-            -d "$SNOWSQL_DATABASE" \
-            -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
-            -q "CREATE SCHEMA IF NOT EXISTS ${{ env.SCHEMA_PRD }};" \
+            -q "CREATE SCHEMA IF NOT EXISTS ${{ steps.schema.outputs.schema }};" \
             -o exit_on_error=true
 
-      - name: Run changed SQL scripts on PRD
+      # ---------------------------------------------------
+      # Executa os scripts SQL alterados na ordem correta
+      # ---------------------------------------------------
+      - name: Deploy changed SQL scripts
         env:
           SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT }}
           SNOWSQL_USER: ${{ secrets.SNOWSQL_USER }}
           SNOWSQL_PWD: ${{ secrets.SNOWSQL_PWD }}
+          TARGET_SCHEMA: ${{ steps.schema.outputs.schema }}
         run: |
           set -e
-          
+
+          # Detecta arquivos SQL alterados no último commit
           if git rev-parse HEAD~1 >/dev/null 2>&1; then
             MODIFIED_FILES=$(git diff --name-only HEAD~1 HEAD | grep '^snowflake/.*\.sql$' || true)
           else
@@ -311,64 +115,41 @@ jobs:
           fi
 
           if [ -z "$MODIFIED_FILES" ]; then
-            echo "No .sql files changed."
+            echo "No .sql files changed. Skipping deploy."
             exit 0
           fi
 
-          echo "Found modified SQL files:"
+          echo "Files to deploy:"
           echo "$MODIFIED_FILES"
 
+          # Ordena: setup → bronze → silver → gold → tasks
           ORDERED_FILES=$(echo "$MODIFIED_FILES" | while read -r file; do
-            if [[ "$file" == *"/tasks/"* ]]; then
-              echo "4:$file"
-            elif [[ "$file" == *"/bronze/"* ]]; then
-              echo "1:$file"
-            elif [[ "$file" == *"/silver/"* ]]; then
-              echo "2:$file"
-            elif [[ "$file" == *"/gold/"* ]]; then
-              echo "3:$file"
-            else
-              echo "0:$file"
+            if [[ "$file" == *"/tasks/"*   ]]; then echo "5:$file"
+            elif [[ "$file" == *"/gold/"*  ]]; then echo "4:$file"
+            elif [[ "$file" == *"/silver/"* ]]; then echo "3:$file"
+            elif [[ "$file" == *"/bronze/"* ]]; then echo "2:$file"
+            elif [[ "$file" == *"/setup/"*  ]]; then echo "1:$file"
+            else echo "0:$file"
             fi
           done | sort -t: -k1,1n | cut -d: -f2-)
 
           for file in $ORDERED_FILES; do
-            echo "========================================="
-            echo "Running $file on schema ${{ env.SCHEMA_PRD }}"
-            echo "========================================="
-            
-            OUTPUT=$(snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
-              -d "$SNOWSQL_DATABASE" -s "${{ env.SCHEMA_PRD }}" \
+            echo "========================================"
+            echo "Deploying: $file → schema $TARGET_SCHEMA"
+            echo "========================================"
+
+            snowsql \
+              -a "$SNOWSQL_ACCOUNT" \
+              -u "$SNOWSQL_USER" \
+              -d "$SNOWSQL_DATABASE" \
+              -s "$TARGET_SCHEMA" \
               -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
               -f "$file" \
-              -o exit_on_error=true \
-              --log-level INFO)
-            
-            echo "$OUTPUT"
+              -o exit_on_error=true
 
-            # Extract and call procedures if applicable
-            if [[ "$file" == snowflake/procedures/* ]]; then
-              # Try different patterns to extract procedure name
-              PROC_NAME=$(echo "$OUTPUT" | grep -oP '(?<=Function )[^ ]+' | head -1)
-              if [ -z "$PROC_NAME" ]; then
-                PROC_NAME=$(echo "$OUTPUT" | grep -oP '(?<=Procedure )[^ ]+' | head -1)
-              fi
-              if [ -z "$PROC_NAME" ]; then
-                PROC_NAME=$(echo "$OUTPUT" | grep -oP 'CREATE OR REPLACE PROCEDURE \K[^(]+' | head -1)
-              fi
-              
-              if [[ -n "$PROC_NAME" ]]; then
-                echo "Calling procedure $PROC_NAME on schema ${{ env.SCHEMA_PRD }}"
-                snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
-                  -d "$SNOWSQL_DATABASE" -s "${{ env.SCHEMA_PRD }}" \
-                  -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
-                  -q "CALL $PROC_NAME();" \
-                  -o exit_on_error=true
-              else
-                echo "⚠️ Could not extract procedure name from output for file $file"
-                echo "Output was: $OUTPUT"
-              fi
-            fi
+            echo "✅ $file deployed successfully."
           done
-          
-          echo "✅ PRD deployment completed successfully!"
+
+          echo "========================================"
+          echo "✅ Deploy to $TARGET_SCHEMA completed."
+          echo "========================================"
