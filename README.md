@@ -45,7 +45,7 @@ northwind-snowflake/
 │
 ├── .github/
 │   └── workflows/
-│       └── deploy.yml              # CI/CD — GitHub Actions
+│       └── deploy.yml.disabled     # CI/CD temporariamente desabilitado
 │
 ├── snowflake/
 │   ├── setup/
@@ -126,13 +126,14 @@ snow sql -f snowflake/tasks/tasks_pipeline.sql
 
 ### Automático (CI/CD)
 
-O pipeline de CI/CD roda via GitHub Actions a cada push nas branches `dev`, `qa` e `main`.
+> 🚧 CI/CD em desenvolvimento: o GitHub Actions está temporariamente desabilitado neste repositório.
 
+O workflow foi mantido como referência em `.github/workflows/deploy.yml.disabled`.
+
+Quando reativado, o fluxo previsto é:
 - Push em `dev` → deploy no ambiente de desenvolvimento
 - Push em `qa` → deploy no ambiente de homologação
 - Push em `main` → deploy em produção
-
-Veja `.github/workflows/deploy.yml` para detalhes.
 
 ## Fluxo de Execução
 
