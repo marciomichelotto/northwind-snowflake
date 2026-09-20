@@ -1,5 +1,4 @@
--- Dimensão Calendário (gerada via procedure)
--- 🔜 Em desenvolvimento
+-- Dimensão Calendário (gerada via procedure, não sourced de silver)
 CREATE OR REPLACE TABLE gold_dim_calendar (
     date_key      INTEGER PRIMARY KEY,  -- YYYYMMDD
     full_date     DATE,

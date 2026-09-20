@@ -42,8 +42,13 @@ Cada camada é carregada por **Stored Procedures** e orquestrada por **Tasks** d
 | Products        | ✅     | ✅     | dim_products   | ✅     |
 | Orders          | ✅     | ✅     | —              | ✅     |
 | Order Details   | ✅     | ✅     | —              | ✅     |
-| Calendar        | —      | —      | dim_calendar   | 🔜     |
-| Orders (Fact)   | —      | —      | fact_orders    | 🔜     |
+| Calendar        | —      | —      | dim_calendar   | ✅     |
+| Orders (Fact)   | —      | —      | fact_orders    | ✅     |
+
+`gold_dim_calendar`: 1.096 dias (1996-01-01 a 1998-12-31, cobrindo com folga a
+janela real das ordens do Northwind clássico). `gold_fact_orders`: 2.155
+linhas — grão `order_id x product_id`, 1:1 com `silver_order_details`, sem
+órfão contra nenhuma dimensão (calendário, clientes, produtos).
 
 ---
 
@@ -73,6 +78,10 @@ northwind-snowflake/
 │   └── tasks/
 │       └── tasks_pipeline.sql      # Orquestração via Snowflake Tasks
 │
+├── scripts/
+│   ├── deploy_snowflake.py         # Aplica todo o DDL (setup, tabelas, procedures) — idempotente
+│   └── carrega_bronze.py           # Carrega o Northwind clássico pro bronze sem stage S3 (ver nota abaixo)
+│
 ├── docs/
 │   └── architecture.md             # Documentação técnica detalhada
 │
@@ -89,7 +98,10 @@ northwind-snowflake/
 
 - Conta Snowflake ativa
 - [Snowflake CLI](https://docs.snowflake.com/en/developer-guide/snowflake-cli/index) instalado
-- Acesso ao stage configurado (`@POC.PUBLIC.NORTH`)
+- Acesso ao stage configurado (`@NORTHWIND.PUBLIC.NORTH`) — **ou**, na ausência de um
+  bucket S3 real, `scripts/carrega_bronze.py` carrega o Northwind clássico
+  direto de um espelho público, sem precisar de stage nenhum (ver nota em
+  Fluxo de Execução)
 
 ### Variáveis necessárias
 
@@ -105,7 +117,7 @@ SNOWFLAKE_USER=seu_user
 SNOWFLAKE_PASSWORD=sua_senha
 SNOWFLAKE_ROLE=seu_role
 SNOWFLAKE_WAREHOUSE=seu_warehouse
-SNOWFLAKE_DATABASE=POC
+SNOWFLAKE_DATABASE=NORTHWIND
 SNOWFLAKE_SCHEMA=PUBLIC
 ```
 
@@ -154,6 +166,19 @@ CALL gold_dim_customers();      -- MERGE com hash_diff → upsert na Gold
 ```
 
 As Tasks automatizam essa sequência inteira via agendamento no Snowflake.
+
+> **Sem stage S3 configurado:** o desenho original do projeto depende de um
+> bucket real com Parquet do Northwind, que é infraestrutura externa e não
+> faz parte deste repositório. `scripts/carrega_bronze.py` cobre esse mesmo
+> papel — busca os 4 CSVs do Northwind clássico de um espelho público
+> estável, normaliza os campos pro snake_case que as procedures `silver_*`
+> já esperam, e insere direto na Bronze no mesmo formato (`raw` VARIANT +
+> `filename` + `created_at`) que `CALL load_bronze_x()` produziria a partir
+> do stage. Dali em diante, a cascata Silver → Gold é a mesma:
+> ```bash
+> python scripts/deploy_snowflake.py   # aplica todo o DDL (idempotente)
+> python scripts/carrega_bronze.py     # carrega bronze e dispara silver -> gold
+> ```
 
 ---
 

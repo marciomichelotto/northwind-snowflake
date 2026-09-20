@@ -1,5 +1,4 @@
--- Fato Orders
--- 🔜 Em desenvolvimento
+-- Fato Orders. Grão: order_id x product_id.
 CREATE OR REPLACE TABLE gold_fact_orders (
     order_id      STRING,
     customer_id   STRING,

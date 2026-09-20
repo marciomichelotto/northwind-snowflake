@@ -86,10 +86,29 @@ CREATE OR REPLACE TASK task_gold_dim_products
 AS
     CALL gold_dim_products();
 
+-- Calendário é gerado, não depende de nenhuma Silver — só da raiz.
+CREATE OR REPLACE TASK task_gold_dim_calendar
+    WAREHOUSE = POC_WH
+    AFTER     task_root
+AS
+    CALL gold_dim_calendar();
+
+-- -----------------------------------------------------------------------------
+-- GOLD — Fato (após as duas Silvers de origem + calendário)
+-- -----------------------------------------------------------------------------
+
+CREATE OR REPLACE TASK task_gold_fact_orders
+    WAREHOUSE = POC_WH
+    AFTER     task_silver_orders, task_silver_order_details, task_gold_dim_calendar
+AS
+    CALL gold_fact_orders();
+
 -- -----------------------------------------------------------------------------
 -- Ativar todas as tasks (ordem inversa — filhas antes da raiz)
 -- -----------------------------------------------------------------------------
 
+ALTER TASK task_gold_fact_orders       RESUME;
+ALTER TASK task_gold_dim_calendar      RESUME;
 ALTER TASK task_gold_dim_products      RESUME;
 ALTER TASK task_gold_dim_customers     RESUME;
 ALTER TASK task_silver_products        RESUME;
