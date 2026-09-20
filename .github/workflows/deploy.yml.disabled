@@ -1,0 +1,155 @@
+name: Deploy Snowflake Pipeline
+
+env:
+  SNOWSQL_DATABASE: FORMACAO
+
+on:
+  push:
+    branches:
+      - dev
+      - qa
+      - main
+    paths:
+      - 'snowflake/**/*.sql'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+
+jobs:
+  deploy:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      # ---------------------------------------------------
+      # Determina o schema de destino com base na branch
+      # ou no input manual do workflow_dispatch
+      # ---------------------------------------------------
+      - name: Set target schema
+        id: schema
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            ENV="${{ github.event.inputs.environment }}"
+          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            ENV="prod"
+          elif [ "${{ github.ref }}" == "refs/heads/qa" ]; then
+            ENV="qa"
+          else
+            ENV="dev"
+          fi
+
+          case "$ENV" in
+            prod) SCHEMA="PRD" ;;
+            qa)   SCHEMA="QA"  ;;
+            *)    SCHEMA="DEV" ;;
+          esac
+
+          echo "env=$ENV"     >> "$GITHUB_OUTPUT"
+          echo "schema=$SCHEMA" >> "$GITHUB_OUTPUT"
+          echo "Deploying to environment: $ENV → schema: $SCHEMA"
+
+      # ---------------------------------------------------
+      # Instalação do SnowSQL
+      # ---------------------------------------------------
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libaio1 libncurses6 alien
+
+      - name: Download and install SnowSQL
+        run: |
+          wget -q https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/1.4/linux_x86_64/snowflake-snowsql-1.4.1-1.x86_64.rpm
+          sudo alien -i snowflake-snowsql-1.4.1-1.x86_64.rpm
+
+      - name: Add SnowSQL to PATH
+        run: echo "/usr/bin" >> "$GITHUB_PATH"
+
+      - name: Verify SnowSQL installation
+        run: snowsql -v
+
+      # ---------------------------------------------------
+      # Garante que o schema de destino existe
+      # ---------------------------------------------------
+      - name: Ensure target schema exists
+        env:
+          SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT }}
+          SNOWSQL_USER: ${{ secrets.SNOWSQL_USER }}
+          SNOWSQL_PWD: ${{ secrets.SNOWSQL_PWD }}
+        run: |
+          snowsql \
+            -a "$SNOWSQL_ACCOUNT" \
+            -u "$SNOWSQL_USER" \
+            -d "$SNOWSQL_DATABASE" \
+            -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
+            -q "CREATE SCHEMA IF NOT EXISTS ${{ steps.schema.outputs.schema }};" \
+            -o exit_on_error=true
+
+      # ---------------------------------------------------
+      # Executa os scripts SQL alterados na ordem correta
+      # ---------------------------------------------------
+      - name: Deploy changed SQL scripts
+        env:
+          SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT }}
+          SNOWSQL_USER: ${{ secrets.SNOWSQL_USER }}
+          SNOWSQL_PWD: ${{ secrets.SNOWSQL_PWD }}
+          TARGET_SCHEMA: ${{ steps.schema.outputs.schema }}
+        run: |
+          set -e
+
+          # Detecta arquivos SQL alterados no último commit
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            MODIFIED_FILES=$(git diff --name-only HEAD~1 HEAD | grep '^snowflake/.*\.sql$' || true)
+          else
+            MODIFIED_FILES=$(git show --pretty='' --name-only HEAD | grep '^snowflake/.*\.sql$' || true)
+          fi
+
+          if [ -z "$MODIFIED_FILES" ]; then
+            echo "No .sql files changed. Skipping deploy."
+            exit 0
+          fi
+
+          echo "Files to deploy:"
+          echo "$MODIFIED_FILES"
+
+          # Ordena: setup → bronze → silver → gold → tasks
+          ORDERED_FILES=$(echo "$MODIFIED_FILES" | while read -r file; do
+            if [[ "$file" == *"/tasks/"*   ]]; then echo "5:$file"
+            elif [[ "$file" == *"/gold/"*  ]]; then echo "4:$file"
+            elif [[ "$file" == *"/silver/"* ]]; then echo "3:$file"
+            elif [[ "$file" == *"/bronze/"* ]]; then echo "2:$file"
+            elif [[ "$file" == *"/setup/"*  ]]; then echo "1:$file"
+            else echo "0:$file"
+            fi
+          done | sort -t: -k1,1n | cut -d: -f2-)
+
+          for file in $ORDERED_FILES; do
+            echo "========================================"
+            echo "Deploying: $file → schema $TARGET_SCHEMA"
+            echo "========================================"
+
+            snowsql \
+              -a "$SNOWSQL_ACCOUNT" \
+              -u "$SNOWSQL_USER" \
+              -d "$SNOWSQL_DATABASE" \
+              -s "$TARGET_SCHEMA" \
+              -h "$SNOWSQL_ACCOUNT.snowflakecomputing.com" -p 443 \
+              -f "$file" \
+              -o exit_on_error=true
+
+            echo "✅ $file deployed successfully."
+          done
+
+          echo "========================================"
+          echo "✅ Deploy to $TARGET_SCHEMA completed."
+          echo "========================================"
