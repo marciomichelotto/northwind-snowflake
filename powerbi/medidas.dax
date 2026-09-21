@@ -1,0 +1,47 @@
+// Medidas DAX — Northwind Snowflake Pipeline
+//
+// Cole no Power BI Desktop depois de importar GOLD_FACT_ORDERS,
+// GOLD_DIM_PRODUCTS e GOLD_DIM_CUSTOMERS (schema PUBLIC do database
+// NORTHWIND). Nomes de coluna em maiúsculo porque o Snowflake dobra
+// identificador sem aspas pra maiúsculo — é assim que o Power BI importa.
+//
+// Validado contra dado real em 2026: receita líquida US$ 1.265.793,25,
+// 830 pedidos, 22 de 77 produtos em risco de ruptura.
+
+Receita Líquida =
+SUM( GOLD_FACT_ORDERS[NET_AMOUNT] )
+
+Ticket Médio por Pedido =
+DIVIDE(
+    SUM( GOLD_FACT_ORDERS[NET_AMOUNT] ),
+    DISTINCTCOUNT( GOLD_FACT_ORDERS[ORDER_ID] )
+)
+
+// Pondera pelo valor de cada linha em vez de tirar média simples da coluna
+// DISCOUNT — evita que um pedido pequeno com desconto alto pese igual a um
+// pedido grande.
+Taxa Média de Desconto =
+DIVIDE(
+    SUMX( GOLD_FACT_ORDERS, GOLD_FACT_ORDERS[UNIT_PRICE] * GOLD_FACT_ORDERS[QUANTITY] * GOLD_FACT_ORDERS[DISCOUNT] ),
+    SUMX( GOLD_FACT_ORDERS, GOLD_FACT_ORDERS[UNIT_PRICE] * GOLD_FACT_ORDERS[QUANTITY] )
+)
+
+Ranking de Produtos =
+RANKX(
+    ALL( GOLD_DIM_PRODUCTS[PRODUCT_NAME] ),
+    CALCULATE( SUM( GOLD_FACT_ORDERS[NET_AMOUNT] ) ),
+    , DESC
+)
+
+// Única medida que não depende do fato de vendas — usa só a dimensão de
+// produtos, calculável mesmo se GOLD_FACT_ORDERS estiver vazio.
+Risco de Ruptura =
+VAR Estoque = SUM( GOLD_DIM_PRODUCTS[UNITS_IN_STOCK] )
+VAR PontoDeReposicao = SUM( GOLD_DIM_PRODUCTS[REORDER_LEVEL] )
+RETURN IF( Estoque <= PontoDeReposicao, "Repor", "OK" )
+
+// Requer relacionamento GOLD_FACT_ORDERS[CUSTOMER_ID] -> GOLD_DIM_CUSTOMERS[CUSTOMER_ID]
+// (criado automaticamente pelo Power BI ao importar as duas tabelas, na maioria dos casos —
+// confira em Modelagem > Gerenciar Relações se o cartão vier em branco).
+Receita por País =
+SUM( GOLD_FACT_ORDERS[NET_AMOUNT] )

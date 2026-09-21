@@ -43,6 +43,37 @@ janela real das ordens do Northwind clássico). `gold_fact_orders`: 2.155
 linhas — grão `order_id x product_id`, 1:1 com `silver_order_details`, sem
 órfão contra nenhuma dimensão (calendário, clientes, produtos).
 
+## Achados
+
+830 pedidos, 89 clientes ativos (de 91 cadastrados), 77 produtos, 1996–1998.
+
+**A receita se concentra em poucos clientes por país.** Áustria é o 3º país
+em receita com só 2 clientes — os outros dois do top 3 têm dezenas.
+
+| País | Receita líquida | Clientes |
+|---|---|---|
+| USA | US$ 245.584,65 | 13 |
+| Germany | US$ 230.284,68 | 11 |
+| Austria | US$ 128.003,86 | 2 |
+
+**Um produto sozinho responde por 11% da receita líquida total.** Côte de
+Blaye (US$ 141.396,74) supera a soma dos dois próximos do ranking.
+
+| Produto | Receita líquida |
+|---|---|
+| Côte de Blaye | US$ 141.396,74 |
+| Thüringer Rostbratwurst | US$ 80.368,69 |
+| Raclette Courdavault | US$ 71.155,70 |
+
+**28,6% do catálogo (22 de 77 produtos) já está no ou abaixo do ponto de
+reposição** — `units_in_stock <= reorder_level`, direto de `gold_dim_products`.
+É a métrica que nenhum dos outros dois projetos do portfólio tem, porque
+nenhum outro lida com estoque físico.
+
+**Desconto médio de 6,55% sobre a receita bruta** (US$ 88.665,55 de
+US$ 1.354.458,59) — a receita líquida (US$ 1.265.793,25) retém 94,4% do
+valor de tabela. Ticket médio por pedido: US$ 1.525,05.
+
 ## Estrutura do Repositório
 
 ```
@@ -72,6 +103,9 @@ northwind-snowflake/
 ├── scripts/
 │   ├── deploy_snowflake.py         # Aplica todo o DDL (setup, tabelas, procedures) — idempotente
 │   └── carrega_bronze.py           # Carrega o Northwind clássico pro bronze sem stage S3 (ver nota abaixo)
+│
+├── powerbi/
+│   └── medidas.dax                 # 6 medidas DAX prontas — ver seção Achados
 │
 ├── docs/
 │   └── architecture.md             # Documentação técnica detalhada
